@@ -10,6 +10,8 @@ from cryptography.x509 import load_pem_x509_csr
 from google.cloud import kms
 
 from kms_priv_key import create_pyca_private_key
+from typing import List, Optional
+import ipaddress
 
 
 def kms_get_public_key(*, client: kms.KeyManagementServiceClient, key_version_name: str) -> str:
@@ -20,7 +22,13 @@ def kms_get_public_key(*, client: kms.KeyManagementServiceClient, key_version_na
     ).decode('ascii')
 
 
-def kms_sign_csr(*, client: kms.KeyManagementServiceClient, key_version_name: str, rfc4514_name: str) -> str:
+def kms_sign_csr(
+        *,
+        client: kms.KeyManagementServiceClient,
+        key_version_name: str,
+        rfc4514_name: str,
+        add_ext: Optional[List[str]]
+) -> str:
     signer_priv_key = create_pyca_private_key(client, key_version_name)
 
     name = x509.Name.from_rfc4514_string(rfc4514_name)
@@ -29,6 +37,50 @@ def kms_sign_csr(*, client: kms.KeyManagementServiceClient, key_version_name: st
         x509.CertificateSigningRequestBuilder()
         .subject_name(name)
     )
+
+    if add_ext:
+        gen_names_all: List[x509.GeneralName] = []
+        for ext_def in add_ext:
+            if not ext_def:
+                continue
+            if '=' not in ext_def:
+                continue
+            key, value = ext_def.split('=', 1)
+            key_norm = key.strip().lower()
+
+            if key_norm == 'subjectaltname':
+                for part in value.split(','):
+                    part = part.strip()
+                    if not part:
+                        continue
+                    if ':' not in part:
+                        continue
+                    typ, data = part.split(':', 1)
+                    t = typ.strip().lower()
+                    if '.' in t:
+                        t = t.split('.', 1)[0]
+                    d = data.strip().rstrip(',:;')
+                    if not d:
+                        continue
+                    if t == 'dns':
+                        gen_names_all.append(x509.DNSName(d))
+                    elif t == 'ip':
+                        try:
+                            ip = ipaddress.ip_address(d)
+                            gen_names_all.append(x509.IPAddress(ip))
+                        except ValueError:
+                            continue
+                    elif t == 'uri':
+                        gen_names_all.append(x509.UniformResourceIdentifier(d))
+                    elif t in ('email', 'rfc822'):
+                        gen_names_all.append(x509.RFC822Name(d))
+                    else:
+                        continue
+
+        if gen_names_all:
+            builder = builder.add_extension(
+                x509.SubjectAlternativeName(gen_names_all), critical=False
+            )
 
     cert = builder.sign(signer_priv_key, signer_priv_key.hash_algorithm())
     return cert.public_bytes(serialization.Encoding.PEM).decode('ascii')

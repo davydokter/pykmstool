@@ -139,6 +139,7 @@ def get_public_key(key_version_name, service_account_file=None, quota_project_id
 @cli.command(help="Sign a Certificate Signing Request (CSR) using specified CryptoKeyVersion.")
 @click.option("--key-version-name", help="Resource name of the CryptoKeyVersion to use.", required=True)
 @click.option("--x509-name", help="X.509 RFC4514 name string to embed within the CSR.", required=True)
+@click.option("--add-ext", multiple=True, help="Add CSR extension(s) in OpenSSL format, e.g. subjectAltName=DNS:example.com")
 @click.option("--service-account-file", help="Path to the service account key JSON file.", required=False)
 @click.option(
     "--unsafe-dont-require-hsm-protection",
@@ -155,6 +156,7 @@ def get_public_key(key_version_name, service_account_file=None, quota_project_id
 def sign_csr(
         key_version_name,
         x509_name,
+        add_ext,
         unsafe_dont_require_hsm_protection,
         unsafe_allow_imported_key,
         service_account_file=None,
@@ -196,7 +198,8 @@ def sign_csr(
     csr_pem = kms_sign_csr(
         client=client,
         key_version_name=key_version_name,
-        rfc4514_name=rfc4514_name
+        rfc4514_name=rfc4514_name,
+        add_ext=list(add_ext) if add_ext else None
     )
     kms_verify_csr(
         client=client,
